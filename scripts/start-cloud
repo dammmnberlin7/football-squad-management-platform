@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+RUN=/tmp/touchline
+mkdir -p "$RUN"
+cd "$ROOT"
+if ! curl -fsS http://127.0.0.1:8080/actuator/health >/dev/null 2>&1; then
+ nohup /workspace/tools/jdk-17.0.17+10/bin/java -jar backend/target/squad-0.1.0.jar > "$RUN/backend.log" 2>&1 &
+ echo $! > "$RUN/backend.pid"
+fi
+for attempt in $(seq 1 40); do
+ if curl -fsS http://127.0.0.1:8080/actuator/health 2>/dev/null | python3 -c 'import json,sys;assert json.load(sys.stdin)["status"]=="UP"' 2>/dev/null; then break; fi
+ if [ "$attempt" -eq 40 ]; then echo 'Backend readiness failed; see /tmp/touchline/backend.log' >&2; exit 1; fi
+ sleep 1
+done
+if ! curl -fsS http://127.0.0.1:5173/ >/dev/null 2>&1; then
+ (cd frontend && nohup npm run dev -- --port 5173 --strictPort > "$RUN/frontend.log" 2>&1 & echo $! > "$RUN/frontend.pid")
+fi
+for attempt in $(seq 1 20); do
+ if curl -fsS http://127.0.0.1:5173/ | rg -q 'Touchline'; then echo 'Backend and frontend ready';exit 0;fi
+ sleep 1
+done
+echo 'Frontend readiness failed; see /tmp/touchline/frontend.log' >&2;exit 1

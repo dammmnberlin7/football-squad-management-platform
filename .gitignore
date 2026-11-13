@@ -4,3 +4,6 @@
 .env
 *.log
 .playwright/
+**/*.tsbuildinfo
+**/test-results/
+**/playwright-report/

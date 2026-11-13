@@ -1,19 +1,463 @@
-import {useState,useEffect, type FormEvent} from 'react';
-type Row=Record<string,string|number>;
-const tabs=['Overview','Clubs','Players','Contracts','Transfers','Performances'];
-export default function App(){
- const[auth,setAuth]=useState('');const[role,setRole]=useState('');const[tab,setTab]=useState('Overview');const[data,setData]=useState<Row[]>([]);const[stats,setStats]=useState<Row>({});const[clubs,setClubs]=useState<Row[]>([]);const[players,setPlayers]=useState<Row[]>([]);const[error,setError]=useState('');const[busy,setBusy]=useState(false);const[revision,refresh]=useState(0);const[history,setHistory]=useState<Row[]>([]);
- const finance=role==='ADMIN'||role==='FINANCE';const admin=role==='ADMIN';
- async function api(path:string,body?:unknown,method='POST',token=auth){const res=await fetch('/api/'+path,{headers:{Authorization:'Basic '+token,...(body?{'Content-Type':'application/json'}:{})},...(body?{method,body:JSON.stringify(body)}:{})});if(!res.ok){let message='Request failed ('+res.status+')';try{const e=await res.json();message=e.detail||e.error||message}catch{}throw new Error(message)}return res.json()}
- async function login(e:FormEvent<HTMLFormElement>){e.preventDefault();setError('');const f=new FormData(e.currentTarget);const token=btoa(f.get('username')+':'+f.get('password'));try{const me=await api('me',undefined,'GET',token);setRole(me.roles[0].replace('ROLE_',''));setAuth(token)}catch{setError('Sign-in failed. Check your credentials.')}}
- useEffect(()=>{if(!auth)return;let active=true;setBusy(true);setError('');Promise.all([api('dashboard'),api('clubs'),api('players'),tab==='Overview'?Promise.resolve([]):api(tab.toLowerCase())]).then(([s,c,p,d])=>{if(active){setStats(s);setClubs(c);setPlayers(p);setData(d)}}).catch(e=>active&&setError(e.message)).finally(()=>active&&setBusy(false));return()=>{active=false}},[auth,tab,revision]);
- async function submit(e:FormEvent<HTMLFormElement>){e.preventDefault();const form=e.currentTarget;const body:Row={};new FormData(form).forEach((v,k)=>{body[k]=['clubId','playerId','toClubId','minutes','goals','assists','playerVersion'].includes(k)?Number(v):String(v)});if(tab==='Transfers'){body.playerVersion=players.find(p=>p.id===body.playerId)?.version??-1}try{await api(tab.toLowerCase(),body);form.reset();refresh(x=>x+1);setError('')}catch(e){setError((e as Error).message)}}
- async function action(row:Row,operation:string){try{await api('contracts/'+row.id+'/'+operation,{version:row.version});refresh(x=>x+1)}catch(e){setError((e as Error).message)}}
- const select=(name:string,rows:Row[],label:string)=><label>{label}<select name={name} required><option value="">Select {label.toLowerCase()}</option>{rows.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select></label>;
- const input=(name:string,label:string,type='text',extra={})=><label>{label}<input name={name} type={type} required {...extra}/></label>;
- if(!auth)return <main className="login"><div className="brand">◈ TOUCHLINE</div><h1>Your club.<br/>One clear view.</h1><p>Football operations, from the squad to the boardroom.</p><form onSubmit={login}>{input('username','Username')}{input('password','Password','password')}<button>Sign in →</button></form>{error&&<p role="alert">{error}</p>}<small>Development accounts: admin, finance, coach.<br/>Password: dev- followed by the account name.</small></main>;
- const canCreate=admin||(finance&&['Contracts','Transfers'].includes(tab))||(['ADMIN','COACH'].includes(role)&&tab==='Performances');
- return <div className="shell"><aside><div className="brand">◈ TOUCHLINE</div><p className="caption">FOOTBALL OPERATIONS</p><nav>{tabs.filter(t=>finance||!['Contracts','Transfers'].includes(t)).map(t=><button className={tab===t?'active':''} key={t} onClick={()=>{setTab(t);setHistory([])}}>{t}<span>↗</span></button>)}</nav><div className="account"><strong>{role}</strong><br/><button onClick={()=>{setAuth('');setData([]);setStats({});setHistory([])}}>Sign out</button></div></aside><main><header><span>WORKSPACE / {tab.toUpperCase()}</span><span className="pill">● Operations console</span></header><section className="title"><p className="caption">THE BIG PICTURE</p><h1>{tab==='Overview'?'Club command centre':tab}</h1><p>Every decision starts with a clear view of your squad.</p></section>{error&&<p role="alert" className="error">{error}</p>}{busy&&<p role="status">Loading…</p>}
- {tab==='Overview'?<><div className="stats">{Object.entries(stats).map(([k,v])=><article key={k}><span>{k.replace(/([A-Z])/g,' $1')}</span><strong>{v}</strong><small>Across your workspace</small></article>)}</div><section className="panel"><h2>Built around the game</h2><p>Manage your clubs and squad, record match performances, and keep contract decisions in one place.</p><div className="quick">{tabs.slice(1).filter(t=>finance||!['Contracts','Transfers'].includes(t)).map(t=><button key={t} onClick={()=>setTab(t)}>Open {t.toLowerCase()} ↗</button>)}</div></section></>:<><section className="panel"><h2>{tab} register <small>{data.length} records</small></h2>{data.length===0?<p>No records yet. Add your first {tab.toLowerCase().slice(0,-1)} below.</p>:<div className="table"><table><thead><tr>{Object.keys(data[0]).map(k=><th key={k}>{k}</th>)}{tab==='Contracts'&&<th>Actions</th>}</tr></thead><tbody>{data.map(row=><tr key={row.id}>{Object.entries(row).map(([k,v])=><td key={k}>{String(v??'—')}</td>)}{tab==='Contracts'&&<td>{row.status==='DRAFT'&&<button onClick={()=>action(row,'sign')}>Sign</button>}{row.status==='SIGNED'&&<button onClick={()=>action(row,'terminate')}>Terminate</button>}<button onClick={()=>api('contracts/'+row.id+'/history').then(setHistory).catch(e=>setError(e.message))}>History</button></td>}</tr>)}</tbody></table></div>}{history.length>0&&<div aria-label="Contract history">{history.map(h=><p key={h.id}>{h.action} · {h.actor} · {h.occurredAt}</p>)}</div>}</section>{canCreate&&<section className="panel"><h2>Add {tab.toLowerCase().slice(0,-1)}</h2><form className="gridform" onSubmit={submit}>{tab==='Clubs'&&input('name','Club name','text',{maxLength:120})}{tab==='Players'&&<>{input('name','Player name','text',{maxLength:120})}{input('position','Position','text',{maxLength:40})}{select('clubId',clubs,'Club')}</>}{tab==='Contracts'&&<>{select('playerId',players,'Player')}{select('clubId',clubs,'Club')}{input('starts','Starts','date')}{input('ends','Ends','date')}{input('salary','Annual salary','number',{min:0,step:'.01'})}</>}{tab==='Transfers'&&<>{select('playerId',players,'Player')}{select('toClubId',clubs,'Destination club')}{input('fee','Transfer fee','number',{min:0,step:'.01'})}</>}{tab==='Performances'&&<>{select('playerId',players,'Player')}{input('matchDate','Match date','date')}{input('minutes','Minutes','number',{min:0,max:130})}{input('goals','Goals','number',{min:0,max:50})}{input('assists','Assists','number',{min:0,max:50})}</>}<button className="submit">Save record →</button></form></section>}</>}
- <footer>TOUCHLINE <span>Squad intelligence. Clear decisions.</span></footer></main></div>
+import { useState, useEffect, type FormEvent } from "react";
+type Row = Record<string, string | number>;
+const tabs = [
+  "Overview",
+  "Clubs",
+  "Players",
+  "Contracts",
+  "Transfers",
+  "Performances",
+];
+export default function App() {
+  const [auth, setAuth] = useState("");
+  const [role, setRole] = useState("");
+  const [tab, setTab] = useState("Overview");
+  const [data, setData] = useState<Row[]>([]);
+  const [stats, setStats] = useState<Row>({});
+  const [clubs, setClubs] = useState<Row[]>([]);
+  const [players, setPlayers] = useState<Row[]>([]);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [revision, refresh] = useState(0);
+  const [history, setHistory] = useState<Row[]>([]);
+  const [editing, setEditing] = useState<Row | null>(null);
+  const finance = role === "ADMIN" || role === "FINANCE";
+  const admin = role === "ADMIN";
+  const visible = (key: string) => !["id", "version"].includes(key);
+  const heading = (key: string) =>
+    (
+      ({
+        clubId: "Club",
+        playerId: "Player",
+        fromClubId: "From club",
+        toClubId: "To club",
+        salary: "Annual salary (EUR)",
+        fee: "Fee (EUR)",
+      }) as Record<string, string>
+    )[key] ?? key.replace(/([A-Z])/g, " $1");
+  const cell = (key: string, value: string | number) => {
+    if (key === "playerId")
+      return players.find((p) => p.id === value)?.name ?? value;
+    if (["clubId", "fromClubId", "toClubId"].includes(key))
+      return clubs.find((c) => c.id === value)?.name ?? value;
+    return String(value ?? "—");
+  };
+  async function api(
+    path: string,
+    body?: unknown,
+    method = "POST",
+    token = auth,
+  ) {
+    const res = await fetch("/api/" + path, {
+      headers: {
+        Authorization: "Basic " + token,
+        ...(body ? { "Content-Type": "application/json" } : {}),
+      },
+      ...(body ? { method, body: JSON.stringify(body) } : {}),
+    });
+    if (!res.ok) {
+      let message = "Request failed (" + res.status + ")";
+      try {
+        const e = await res.json();
+        message = e.detail || e.error || message;
+      } catch {}
+      throw new Error(message);
+    }
+    return res.json();
+  }
+  async function login(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError("");
+    const f = new FormData(e.currentTarget);
+    const token = btoa(f.get("username") + ":" + f.get("password"));
+    try {
+      const me = await api("me", undefined, "GET", token);
+      setRole(me.roles[0].replace("ROLE_", ""));
+      setAuth(token);
+    } catch {
+      setError("Sign-in failed. Check your credentials.");
+    }
+  }
+  useEffect(() => {
+    if (!auth) return;
+    let active = true;
+    setBusy(true);
+    setError("");
+    Promise.all([
+      api("dashboard"),
+      api("clubs"),
+      api("players"),
+      tab === "Overview" ? Promise.resolve([]) : api(tab.toLowerCase()),
+    ])
+      .then(([s, c, p, d]) => {
+        if (active) {
+          setStats(s);
+          setClubs(c);
+          setPlayers(p);
+          setData(d);
+        }
+      })
+      .catch((e) => active && setError(e.message))
+      .finally(() => active && setBusy(false));
+    return () => {
+      active = false;
+    };
+  }, [auth, tab, revision]);
+  async function submit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const body: Row = {};
+    new FormData(form).forEach((v, k) => {
+      body[k] = [
+        "clubId",
+        "playerId",
+        "toClubId",
+        "minutes",
+        "goals",
+        "assists",
+        "playerVersion",
+      ].includes(k)
+        ? Number(v)
+        : String(v);
+    });
+    if (tab === "Transfers") {
+      body.playerVersion =
+        players.find((p) => p.id === body.playerId)?.version ?? -1;
+    }
+    try {
+      if (editing) body.version = editing.version;
+      await api(
+        tab.toLowerCase() + (editing ? "/" + editing.id : ""),
+        body,
+        editing ? "PUT" : "POST",
+      );
+      setEditing(null);
+      form.reset();
+      refresh((x) => x + 1);
+      setError("");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  async function action(row: Row, operation: string) {
+    try {
+      await api("contracts/" + row.id + "/" + operation, {
+        version: row.version,
+      });
+      refresh((x) => x + 1);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  const select = (name: string, rows: Row[], label: string) => (
+    <label htmlFor={name}>
+      {label}
+      <select
+        aria-label={label}
+        id={name}
+        name={name}
+        defaultValue={editing?.[name] ?? ""}
+        required
+      >
+        <option value="">Select {label.toLowerCase()}</option>
+        {rows.map((r) => (
+          <option key={r.id} value={r.id}>
+            {r.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+  const input = (name: string, label: string, type = "text", extra = {}) => (
+    <label htmlFor={name}>
+      {label}
+      <input
+        aria-label={label}
+        id={name}
+        name={name}
+        defaultValue={editing?.[name] ?? ""}
+        type={type}
+        required
+        {...extra}
+      />
+    </label>
+  );
+  if (!auth)
+    return (
+      <main className="login">
+        <div className="brand">◈ TOUCHLINE</div>
+        <h1>
+          Your club.
+          <br />
+          One clear view.
+        </h1>
+        <p>Football operations, from the squad to the boardroom.</p>
+        <form onSubmit={login}>
+          {input("username", "Username")}
+          {input("password", "Password", "password")}
+          <button>Sign in →</button>
+        </form>
+        {error && <p role="alert">{error}</p>}
+        <small>
+          Development accounts: admin, finance, coach.
+          <br />
+          Password: dev- followed by the account name.
+        </small>
+      </main>
+    );
+  const canCreate =
+    admin ||
+    (finance && ["Contracts", "Transfers"].includes(tab)) ||
+    (["ADMIN", "COACH"].includes(role) && tab === "Performances");
+  return (
+    <div className="shell">
+      <aside>
+        <div className="brand">◈ TOUCHLINE</div>
+        <p className="caption">FOOTBALL OPERATIONS</p>
+        <nav>
+          {tabs
+            .filter((t) => finance || !["Contracts", "Transfers"].includes(t))
+            .map((t) => (
+              <button
+                className={tab === t ? "active" : ""}
+                key={t}
+                onClick={() => {
+                  setTab(t);
+                  setHistory([]);
+                  setEditing(null);
+                }}
+              >
+                {t}
+                <span>→</span>
+              </button>
+            ))}
+        </nav>
+        <div className="account">
+          <strong>{role}</strong>
+          <br />
+          <button
+            onClick={() => {
+              setAuth("");
+              setData([]);
+              setStats({});
+              setHistory([]);
+            }}
+          >
+            Sign out
+          </button>
+        </div>
+      </aside>
+      <main>
+        <header>
+          <span>WORKSPACE / {tab.toUpperCase()}</span>
+          <span className="pill">● Operations console</span>
+        </header>
+        <section className="title">
+          <p className="caption">THE BIG PICTURE</p>
+          <h1>{tab === "Overview" ? "Club command centre" : tab}</h1>
+          <p>Every decision starts with a clear view of your squad.</p>
+        </section>
+        {error && (
+          <p role="alert" className="error">
+            {error}
+          </p>
+        )}
+        {busy && <p role="status">Loading…</p>}
+        {tab === "Overview" ? (
+          <>
+            <div className="stats">
+              {Object.entries(stats).map(([k, v]) => (
+                <article key={k}>
+                  <span>{k.replace(/([A-Z])/g, " $1")}</span>
+                  <strong>
+                    {k === "transferSpend"
+                      ? new Intl.NumberFormat("en-GB", {
+                          style: "currency",
+                          currency: "EUR",
+                          maximumFractionDigits: 0,
+                        }).format(Number(v))
+                      : v}
+                  </strong>
+                  <small>Across your workspace</small>
+                </article>
+              ))}
+            </div>
+            <section className="panel">
+              <h2>Built around the game</h2>
+              <p>
+                Manage your clubs and squad, record match performances, and keep
+                contract decisions in one place.
+              </p>
+              <div className="quick">
+                {tabs
+                  .slice(1)
+                  .filter(
+                    (t) => finance || !["Contracts", "Transfers"].includes(t),
+                  )
+                  .map((t) => (
+                    <button key={t} onClick={() => setTab(t)}>
+                      Open {t.toLowerCase()} →
+                    </button>
+                  ))}
+              </div>
+            </section>
+          </>
+        ) : (
+          <>
+            <section className="panel">
+              <h2>
+                {tab} register <small>{data.length} records</small>
+              </h2>
+              {data.length === 0 ? (
+                <p>
+                  No records yet. Add your first{" "}
+                  {tab.toLowerCase().slice(0, -1)} below.
+                </p>
+              ) : (
+                <div className="table">
+                  <table>
+                    <thead>
+                      <tr>
+                        {Object.keys(data[0])
+                          .filter(visible)
+                          .map((k) => (
+                            <th key={k}>{heading(k)}</th>
+                          ))}
+                        {["Clubs", "Players", "Contracts"].includes(tab) &&
+                          canCreate && <th>Actions</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.map((row) => (
+                        <tr key={row.id}>
+                          {Object.entries(row)
+                            .filter(([k]) => visible(k))
+                            .map(([k, v]) => (
+                              <td key={k}>{cell(k, v)}</td>
+                            ))}
+                          {["Clubs", "Players", "Contracts"].includes(tab) &&
+                            canCreate && (
+                              <td>
+                                {(tab !== "Contracts" ||
+                                  row.status === "DRAFT") && (
+                                  <button onClick={() => setEditing(row)}>
+                                    Edit
+                                  </button>
+                                )}
+                                {tab === "Contracts" && (
+                                  <>
+                                    {row.status === "DRAFT" && (
+                                      <button
+                                        onClick={() => action(row, "sign")}
+                                      >
+                                        Sign
+                                      </button>
+                                    )}
+                                    {row.status === "SIGNED" && (
+                                      <button
+                                        onClick={() => action(row, "terminate")}
+                                      >
+                                        Terminate
+                                      </button>
+                                    )}
+                                    <button
+                                      onClick={() =>
+                                        api("contracts/" + row.id + "/history")
+                                          .then(setHistory)
+                                          .catch((e) => setError(e.message))
+                                      }
+                                    >
+                                      History
+                                    </button>
+                                  </>
+                                )}
+                              </td>
+                            )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {history.length > 0 && (
+                <div aria-label="Contract history">
+                  {history.map((h) => (
+                    <p key={h.id}>
+                      {h.action} · {h.actor} · {h.occurredAt}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </section>
+            {canCreate && (
+              <section className="panel">
+                <h2>
+                  {editing ? "Edit" : "Add"} {tab.toLowerCase().slice(0, -1)}
+                </h2>
+                {editing && (
+                  <button onClick={() => setEditing(null)}>Cancel edit</button>
+                )}
+                <form
+                  key={tab + String(editing?.id ?? "new")}
+                  className="gridform"
+                  onSubmit={submit}
+                >
+                  {tab === "Clubs" &&
+                    input("name", "Club name", "text", { maxLength: 120 })}
+                  {tab === "Players" && (
+                    <>
+                      {input("name", "Player name", "text", { maxLength: 120 })}
+                      {input("position", "Position", "text", { maxLength: 40 })}
+                      {select("clubId", clubs, "Club")}
+                    </>
+                  )}
+                  {tab === "Contracts" && (
+                    <>
+                      {select("playerId", players, "Player")}
+                      {select("clubId", clubs, "Club")}
+                      {input("starts", "Starts", "date")}
+                      {input("ends", "Ends", "date")}
+                      {input("salary", "Annual salary", "number", {
+                        min: 0,
+                        step: ".01",
+                      })}
+                    </>
+                  )}
+                  {tab === "Transfers" && (
+                    <>
+                      {select("playerId", players, "Player")}
+                      {select("toClubId", clubs, "Destination club")}
+                      {input("fee", "Transfer fee", "number", {
+                        min: 0,
+                        step: ".01",
+                      })}
+                    </>
+                  )}
+                  {tab === "Performances" && (
+                    <>
+                      {select("playerId", players, "Player")}
+                      {input("matchDate", "Match date", "date")}
+                      {input("minutes", "Minutes", "number", {
+                        min: 0,
+                        max: 130,
+                      })}
+                      {input("goals", "Goals", "number", { min: 0, max: 50 })}
+                      {input("assists", "Assists", "number", {
+                        min: 0,
+                        max: 50,
+                      })}
+                    </>
+                  )}
+                  <button className="submit">Save record →</button>
+                </form>
+              </section>
+            )}
+          </>
+        )}
+        <footer>
+          TOUCHLINE <span>Squad intelligence. Clear decisions.</span>
+        </footer>
+      </main>
+    </div>
+  );
 }

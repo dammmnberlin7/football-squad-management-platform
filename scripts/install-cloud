@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+mkdir -p /workspace/tools
+python3 - <<'PY'
+import hashlib,pathlib,urllib.request,tarfile,tempfile
+items=[('https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.9.9/apache-maven-3.9.9-bin.tar.gz','.sha512','sha512','apache-maven-3.9.9'),('https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.17%2B10/OpenJDK17U-jdk_x64_linux_hotspot_17.0.17_10.tar.gz','.sha256.txt','sha256','jdk-17.0.17+10')]
+for url,suffix,algorithm,directory in items:
+ if pathlib.Path('/workspace/tools',directory).is_dir():continue
+ with tempfile.TemporaryDirectory() as tmp:
+  archive=pathlib.Path(tmp,'archive.tgz')
+  urllib.request.urlretrieve(url,archive)
+  expected=urllib.request.urlopen(url+suffix).read().decode().split()[0]
+  assert hashlib.file_digest(archive.open('rb'),algorithm).hexdigest()==expected, 'Checksum mismatch'
+  with tarfile.open(archive) as t:t.extractall('/workspace/tools',filter='data')
+PY
+cd "$ROOT"
+./scripts/mvn-cloud -B -q -f backend/pom.xml package
+npm --prefix frontend ci --cache /workspace/.npm
+npm --prefix frontend test
+npm --prefix frontend run build
