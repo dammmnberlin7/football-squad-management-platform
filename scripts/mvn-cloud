@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+export JAVA_HOME=${JAVA_HOME:-/workspace/tools/jdk-17.0.17+10}
+MVN=${MVN:-/workspace/tools/apache-maven-3.9.9/bin/mvn}
+SETTINGS=$(mktemp /tmp/squad-maven-XXXX.xml)
+trap 'rm -f "$SETTINGS"' EXIT
+python3 - "$SETTINGS" <<'PY'
+import os,sys,urllib.parse,xml.etree.ElementTree as E
+root=E.Element('settings');proxies=E.SubElement(root,'proxies')
+p=urllib.parse.urlparse(os.environ.get('HTTPS_PROXY',os.environ.get('https_proxy','')))
+if p.hostname:
+ proxy=E.SubElement(proxies,'proxy')
+ for k,v in [('id','cloud'),('active','true'),('protocol','http'),('host',p.hostname),('port',str(p.port or 80)),('nonProxyHosts','localhost|127.0.0.1')]:E.SubElement(proxy,k).text=v
+E.ElementTree(root).write(sys.argv[1],encoding='unicode')
+PY
+cd "$ROOT"
+"$MVN" -s "$SETTINGS" -Dmaven.repo.local=/workspace/.m2/repository -Djavax.net.ssl.trustStore=/etc/ssl/certs/java/cacerts "$@"
