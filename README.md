@@ -19,4 +19,6 @@ Development accounts: `admin` / `dev-admin`, `finance` / `dev-finance`, `coach` 
 
 The API uses port 8080; Vite uses 5173 and proxies `/api` and `/actuator`. Health: `GET /actuator/health`. Development data is destroyed on backend shutdown. Logs and owned PID files from the startup helper live in `/tmp/touchline`. Build outputs, dependency caches, and logs are not committed.
 
+Daily workflows include searchable registers, player performance profiles, contract expiry alerts and renewal draft preparation. Financial actions require confirmation, and coach views exclude financial data.
+
 See [architecture and API](docs/architecture.md), [Oracle setup](database/README.md), and [validation and limitations](docs/validation.md). This repository is a development implementation; no production deployment or merge to main is performed.

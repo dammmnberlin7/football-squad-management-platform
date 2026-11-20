@@ -20,6 +20,7 @@ public class Api {
   final TransferRepository transfers;
   final PerformanceRepository performances;
   final ContractEventRepository events;
+  final Clock clock;
 
   Api(
       ClubRepository c,
@@ -27,7 +28,9 @@ public class Api {
       ContractRepository co,
       TransferRepository t,
       PerformanceRepository pe,
-      ContractEventRepository e) {
+      ContractEventRepository e,
+      Clock clock) {
+    this.clock = clock;
     clubs = c;
     players = p;
     contracts = co;
@@ -108,6 +111,37 @@ public class Api {
     return players.findAll();
   }
 
+  record PlayerSummary(
+      Player player,
+      Club club,
+      int appearances,
+      long minutes,
+      long goals,
+      long assists,
+      BigDecimal goalsPer90,
+      List<Performance> recentPerformances) {}
+
+  @GetMapping("/players/{id}/summary")
+  PlayerSummary playerSummary(@PathVariable Long id) {
+    var player = players.findById(id).orElseThrow();
+    var records = performances.findByPlayerIdOrderByMatchDateDescIdDesc(id);
+    long minutes = records.stream().mapToLong(p -> p.minutes).sum();
+    long goals = records.stream().mapToLong(p -> p.goals).sum();
+    return new PlayerSummary(
+        player,
+        clubs.findById(player.clubId).orElseThrow(),
+        records.size(),
+        minutes,
+        goals,
+        records.stream().mapToLong(p -> p.assists).sum(),
+        minutes == 0
+            ? BigDecimal.ZERO
+            : BigDecimal.valueOf(goals)
+                .multiply(BigDecimal.valueOf(90))
+                .divide(BigDecimal.valueOf(minutes), 2, java.math.RoundingMode.HALF_UP),
+        records.stream().limit(5).toList());
+  }
+
   @PostMapping(value = "/players", consumes = "application/json")
   @PreAuthorize("hasRole('ADMIN')")
   Player createPlayer(@Valid @RequestBody PlayerInput i) {
@@ -135,6 +169,16 @@ public class Api {
   @PreAuthorize("hasAnyRole('ADMIN','FINANCE')")
   List<Contract> contracts() {
     return contracts.findAll();
+  }
+
+  @GetMapping("/contracts/expiring")
+  @PreAuthorize("hasAnyRole('ADMIN','FINANCE')")
+  List<Contract> expiring(@RequestParam(defaultValue = "90") int days) {
+    if (days < 0 || days > 366)
+      throw new IllegalArgumentException("Expiry window must be between 0 and 366 days");
+    var today = LocalDate.now(clock);
+    return contracts.findByStatusAndEndsBetweenOrderByEndsAscIdAsc(
+        "SIGNED", today, today.plusDays(days));
   }
 
   void fill(Contract c, ContractInput i) {
@@ -174,7 +218,7 @@ public class Api {
     e.contractId = c.id;
     e.action = action;
     e.actor = who.getName();
-    e.occurredAt = Instant.now();
+    e.occurredAt = Instant.now(clock);
     events.save(e);
   }
 
@@ -236,7 +280,7 @@ public class Api {
     t.fromClubId = p.clubId;
     t.toClubId = i.toClubId();
     t.fee = i.fee();
-    t.completedOn = LocalDate.now();
+    t.completedOn = LocalDate.now(clock);
     for (var c : contracts.findByPlayerId(p.id)) {
       if (c.status.equals("SIGNED")) {
         c.status = "TERMINATED";
@@ -274,6 +318,12 @@ public class Api {
     m.put("goals", performances.findAll().stream().mapToInt(x -> x.goals).sum());
     if (a.getAuthorities().stream()
         .anyMatch(x -> Set.of("ROLE_ADMIN", "ROLE_FINANCE").contains(x.getAuthority()))) {
+      var today = LocalDate.now(clock);
+      m.put(
+          "activeContracts",
+          contracts.countByStatusAndStartsLessThanEqualAndEndsGreaterThanEqual(
+              "SIGNED", today, today));
+      m.put("expiringContracts", expiring(90).size());
       m.put(
           "signedContracts",
           contracts.findAll().stream().filter(x -> x.status.equals("SIGNED")).count());

@@ -293,3 +293,120 @@ footer {
     display: none;
   }
 }
+.register-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 0 0 24px;
+}
+.register-tools label:first-child {
+  flex: 1;
+  min-width: 180px;
+}
+.register-tools label {
+  min-width: 150px;
+}
+.secondary {
+  background: #edf3e7;
+  color: #284b37;
+}
+.secondary:hover {
+  background: #dcebcf;
+}
+button:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+.pagination,
+.section-heading,
+.dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.pagination {
+  margin-top: 20px;
+  font-size: 12px;
+}
+.section-heading h2 {
+  margin: 0;
+}
+.profile-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 30px;
+  margin: 24px 0;
+}
+.profile-stats dt {
+  font-size: 12px;
+  color: #63786c;
+}
+.profile-stats dd {
+  margin: 8px 0 0;
+  font-weight: 700;
+  font-size: 24px;
+}
+.success {
+  padding: 14px;
+  background: #e5efdf;
+  border-radius: 7px;
+  color: #284b37;
+}
+.expiry-list {
+  padding: 0;
+  list-style: none;
+}
+.expiry-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 0;
+  border-top: 1px solid #edf1ea;
+  gap: 16px;
+}
+.expiry-list small {
+  display: block;
+  margin-top: 6px;
+  color: #63786c;
+}
+dialog {
+  border: 1px solid #d2dcd2;
+  border-radius: 12px;
+  padding: 28px;
+  max-width: 480px;
+  width: calc(100% - 40px);
+  box-shadow: 0 20px 70px #102e2633;
+  color: #162a25;
+}
+dialog::backdrop {
+  background: #102e2688;
+}
+.dialog-actions {
+  justify-content: flex-end;
+  margin-top: 24px;
+}
+@media (max-width: 550px) {
+  .account {
+    display: block;
+    margin-top: 14px;
+  }
+  .account strong {
+    display: none;
+  }
+  .account br {
+    display: none;
+  }
+  .account button {
+    padding: 8px 0;
+  }
+  .register-tools {
+    flex-direction: column;
+  }
+  .register-tools label {
+    min-width: 0;
+  }
+  .profile-stats {
+    gap: 20px;
+  }
+}

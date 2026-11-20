@@ -44,3 +44,103 @@ it("reports failed authentication", async () => {
     expect(screen.getByRole("alert").textContent).toContain("Sign-in failed"),
   );
 });
+it("searches names, pages registers and shows an empty search result", async () => {
+  const clubs = Array.from({ length: 12 }, (_, i) => ({
+    id: i + 1,
+    version: 0,
+    name: `Club ${String(i + 1).padStart(2, "0")}`,
+  }));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string) => ({
+      ok: true,
+      json: async () =>
+        input.endsWith("/me")
+          ? { roles: ["ROLE_ADMIN"] }
+          : input.endsWith("/dashboard")
+            ? { clubs: 12 }
+            : input.endsWith("/clubs")
+              ? clubs
+              : [],
+    })),
+  );
+  render(<App />);
+  const user = userEvent.setup();
+  await user.type(screen.getByLabelText("Username"), "admin");
+  await user.type(screen.getByLabelText("Password"), "dev-admin");
+  await user.click(screen.getByRole("button", { name: /Sign in/ }));
+  await screen.findByText("Club command centre");
+  await user.click(screen.getByRole("button", { name: /^Clubs/ }));
+  await screen.findByRole("cell", { name: "Club 01" });
+  expect(screen.queryByRole("cell", { name: "Club 12" })).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Next page" }));
+  await screen.findByRole("cell", { name: "Club 12" });
+  await user.type(
+    screen.getByRole("searchbox", { name: "Search clubs" }),
+    "CLUB 02",
+  );
+  await screen.findByRole("cell", { name: "Club 02" });
+  expect(screen.queryByRole("cell", { name: "Club 12" })).toBeNull();
+  await user.clear(screen.getByRole("searchbox"));
+  await user.type(screen.getByRole("searchbox"), "missing");
+  await screen.findByText("No records match your search or filters.");
+});
+it("clears the financial page and edit defaults when changing from admin to coach", async () => {
+  const requests: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string, init?: RequestInit) => {
+      const headers = init?.headers as Record<string, string>;
+      const coach =
+        headers?.Authorization === "Basic " + btoa("coach:dev-coach");
+      requests.push((coach ? "coach:" : "admin:") + input);
+      return {
+        ok: true,
+        json: async () =>
+          input.endsWith("/me")
+            ? { roles: [coach ? "ROLE_COACH" : "ROLE_ADMIN"] }
+            : input.endsWith("/dashboard")
+              ? { players: 1 }
+              : input.endsWith("/contracts")
+                ? [
+                    {
+                      id: 1,
+                      version: 0,
+                      playerId: 1,
+                      clubId: 1,
+                      starts: "2026-01-01",
+                      ends: "2028-01-01",
+                      salary: 123456,
+                      status: "DRAFT",
+                    },
+                  ]
+                : [],
+      };
+    }),
+  );
+  render(<App />);
+  const user = userEvent.setup();
+  await user.type(screen.getByLabelText("Username"), "admin");
+  await user.type(screen.getByLabelText("Password"), "dev-admin");
+  await user.click(screen.getByRole("button", { name: /Sign in/ }));
+  await screen.findByText("Club command centre");
+  await user.click(screen.getByRole("button", { name: /^Contracts/ }));
+  await screen.findByRole("cell", { name: "123456" });
+  await user.click(screen.getByRole("button", { name: "Edit" }));
+  await user.click(screen.getByRole("button", { name: "Sign out" }));
+  expect((screen.getByLabelText("Username") as HTMLInputElement).value).toBe(
+    "",
+  );
+  await user.type(screen.getByLabelText("Username"), "coach");
+  await user.type(screen.getByLabelText("Password"), "dev-coach");
+  await user.click(screen.getByRole("button", { name: /Sign in/ }));
+  await screen.findByText("Club command centre");
+  await waitFor(() =>
+    expect(requests.some((p) => p === "coach:/api/dashboard")).toBe(true),
+  );
+  expect(requests.some((p) => p.startsWith("coach:/api/contracts"))).toBe(
+    false,
+  );
+  expect(screen.queryByText("123456")).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Contracts/ })).toBeNull();
+});
