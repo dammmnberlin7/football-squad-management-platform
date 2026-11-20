@@ -69,9 +69,9 @@ public class Api {
   record PerformanceInput(
       @NotNull Long playerId,
       @NotNull @PastOrPresent LocalDate matchDate,
-      @Min(0) @Max(130) int minutes,
-      @Min(0) @Max(50) int goals,
-      @Min(0) @Max(50) int assists) {}
+      @NotNull @Min(0) @Max(130) Integer minutes,
+      @NotNull @Min(0) @Max(50) Integer goals,
+      @NotNull @Min(0) @Max(50) Integer assists) {}
 
   void version(Long actual, Long expected) {
     if (expected == null || !expected.equals(actual))
@@ -330,9 +330,9 @@ public class Api {
       @NotNull Long version,
       @NotNull Long playerId,
       @NotNull @PastOrPresent LocalDate matchDate,
-      @Min(0) @Max(130) int minutes,
-      @Min(0) @Max(50) int goals,
-      @Min(0) @Max(50) int assists) {}
+      @NotNull @Min(0) @Max(130) Integer minutes,
+      @NotNull @Min(0) @Max(50) Integer goals,
+      @NotNull @Min(0) @Max(50) Integer assists) {}
 
   @PutMapping(value = "/performances/{id}", consumes = "application/json")
   @PreAuthorize("hasAnyRole('ADMIN','COACH')")

@@ -58,7 +58,7 @@ The Renew/Prepare renewal actions prefill a new one-year draft beginning the day
 
 - `GET /api/registers/{clubs|players|contracts|transfers|performances}?page=0&size=10&q=&clubId=&status=` returns content, totals, page metadata and referenced player/club names. Size is 1–100; query text is at most 120 characters. Financial register routes retain role restrictions.
 - `GET /api/lookups/{clubs|players}?q=&page=0&size=50` returns bounded selector options. `id` resolves an existing selected record outside the current search page.
-- `PUT /api/performances/{id}` accepts the existing fields plus version. Player identity is immutable; other validated fields can be corrected by ADMIN/COACH.
+- `PUT /api/performances/{id}` accepts the existing fields plus version. Player identity is immutable; other validated fields can be corrected by ADMIN/COACH. All three statistic fields are required, including explicit zero values; omitted fields return 400.
 - `GET/POST /api/contracts/{id}/documents` lists metadata or appends a multipart PDF (5 MiB maximum, PDF header validation, custom upload header required). `GET /api/contracts/{id}/documents/{documentId}` downloads a scoped immutable attachment. ADMIN/FINANCE only.
 - `GET /api/audit?page=0&size=20&q=` pages audit events. ADMIN sees all, FINANCE sees financial resources only. No audit update/delete endpoint exists.
 - `GET/POST /api/users`, `PUT /api/users/{id}` manage accounts as ADMIN. Creates require username, password and roles. Updates require version, roles, enabled and an optional replacement password. Responses exclude passwords/hashes.

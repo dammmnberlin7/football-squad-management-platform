@@ -33,12 +33,12 @@ public class AccountsApi {
   record Create(
       @NotBlank @Pattern(regexp = "[a-zA-Z0-9._-]{3,80}") String username,
       @NotBlank @Size(min = 12, max = 72) String password,
-      @NotEmpty Set<@Pattern(regexp = "ADMIN|FINANCE|COACH") String> roles) {}
+      @NotEmpty Set<@NotBlank @Pattern(regexp = "ADMIN|FINANCE|COACH") String> roles) {}
 
   record Update(
       @NotNull Long version,
-      @NotEmpty Set<@Pattern(regexp = "ADMIN|FINANCE|COACH") String> roles,
-      boolean enabled,
+      @NotEmpty Set<@NotBlank @Pattern(regexp = "ADMIN|FINANCE|COACH") String> roles,
+      @NotNull Boolean enabled,
       @Size(max = 72) String password) {}
 
   @GetMapping

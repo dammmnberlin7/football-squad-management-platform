@@ -274,4 +274,76 @@ class OperationsTest {
     mvc.perform(get("/api/registers/players").param("q", "Alex Morgan"))
         .andExpect(jsonPath("$.totalElements").value(3));
   }
+
+  @Test
+  @WithMockUser(roles = "ADMIN")
+  void incompletePerformanceRequestsCannotEraseStatistics() throws Exception {
+    long player = player(club("Required statistics FC"));
+    var input = new java.util.HashMap<String, Object>();
+    input.put("playerId", player);
+    input.put("matchDate", "2026-01-01");
+    input.put("minutes", 90);
+    input.put("goals", 2);
+    input.put("assists", 1);
+    var record = post("performances", input);
+    long id = record.get("id").asLong();
+    for (String field : java.util.List.of("minutes", "goals", "assists")) {
+      var incomplete = new java.util.HashMap<>(input);
+      incomplete.remove(field);
+      mvc.perform(
+              org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(
+                      "/api/performances")
+                  .contentType("application/json")
+                  .content(json.writeValueAsBytes(incomplete)))
+          .andExpect(status().isBadRequest());
+      incomplete.put("version", 0);
+      mvc.perform(
+              put("/api/performances/" + id)
+                  .contentType("application/json")
+                  .content(json.writeValueAsBytes(incomplete)))
+          .andExpect(status().isBadRequest());
+    }
+    mvc.perform(get("/api/players/" + player + "/summary"))
+        .andExpect(jsonPath("$.appearances").value(1))
+        .andExpect(jsonPath("$.goals").value(2))
+        .andExpect(jsonPath("$.assists").value(1));
+    input.put("goals", 0);
+    input.put("assists", 0);
+    input.put("version", 0);
+    mvc.perform(
+            put("/api/performances/" + id)
+                .contentType("application/json")
+                .content(json.writeValueAsBytes(input)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.goals").value(0));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN")
+  void missingAccountAccessAndNullRolesAreRejected() throws Exception {
+    var user =
+        post(
+            "users",
+            java.util.Map.of(
+                "username",
+                "required-access-coach",
+                "password",
+                "test-required-password",
+                "roles",
+                java.util.List.of("COACH")));
+    var body = java.util.Map.of("version", 0, "roles", java.util.List.of("COACH"));
+    mvc.perform(
+            put("/api/users/" + user.get("id"))
+                .contentType("application/json")
+                .content(json.writeValueAsBytes(body)))
+        .andExpect(status().isBadRequest());
+    mvc.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/users")
+                .contentType("application/json")
+                .content(
+                    "{\"username\":\"invalid-null-role\",\"password\":\"test-long-password\",\"roles\":[null]}"))
+        .andExpect(status().isBadRequest());
+    mvc.perform(get("/api/users"))
+        .andExpect(jsonPath("$[?(@.username == 'required-access-coach')].enabled").value(true));
+  }
 }
