@@ -99,3 +99,59 @@ it("keeps an existing selected player when lookup results change", async () => {
       .value,
   ).toBe("101");
 });
+it("holds form submission until an existing off-page selection is resolved", async () => {
+  const { default: LookupSelect } = await import("./LookupSelect");
+  const { useState } = await import("react");
+  let resolveSelected: ((value: unknown) => void) | undefined;
+  const api = vi.fn(async (path: string) =>
+    path.includes("id=101")
+      ? new Promise((resolve) => {
+          resolveSelected = resolve;
+        })
+      : { content: [{ id: 1, name: "First club" }] },
+  );
+  function Form() {
+    const [busy, setBusy] = useState(false);
+    return (
+      <form onSubmit={(e) => e.preventDefault()}>
+        <LookupSelect
+          name="clubId"
+          label="Club"
+          kind="clubs"
+          initial={[]}
+          defaultValue={101}
+          api={api}
+          onBusyChange={setBusy}
+        />
+        <button disabled={busy}>Save selection</button>
+      </form>
+    );
+  }
+  render(<Form />);
+  const { waitFor, act } = await import("@testing-library/react");
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Save selection",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true),
+  );
+  await act(async () => {
+    resolveSelected?.({ content: [{ id: 101, name: "Resolved club" }] });
+  });
+  await screen.findByRole("option", { name: "Resolved club" });
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Save selection",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false),
+  );
+  expect(
+    (screen.getByRole("combobox", { name: "Club" }) as HTMLSelectElement).value,
+  ).toBe("101");
+});

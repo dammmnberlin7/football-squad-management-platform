@@ -1,10 +1,18 @@
-import { useState, useEffect, type FormEvent } from "react";
+import { useState, useEffect, useRef, type FormEvent } from "react";
 import LookupSelect from "./LookupSelect";
 import AccountsPanel from "./AccountsPanel";
 import AuditPanel from "./AuditPanel";
 import DocumentsPanel from "./DocumentsPanel";
 import ConfirmDialog from "./ConfirmDialog";
 import PlayerProfile, { type PlayerSummary } from "./PlayerProfile";
+class RequestError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
 type Row = Record<string, string | number>;
 const tabs = [
   "Overview",
@@ -18,6 +26,8 @@ const tabs = [
 ];
 export default function App() {
   const [auth, setAuth] = useState("");
+  const session = useRef({ token: "", generation: 0 });
+  const generation = session.current.generation;
   const [username, setUsername] = useState("");
   const [config, setConfig] = useState({
     mode: "development",
@@ -47,6 +57,8 @@ export default function App() {
   const [profileId, setProfileId] = useState<number | null>(null);
   const [profile, setProfile] = useState<PlayerSummary | null>(null);
   const [saving, setSaving] = useState(false);
+  const [lookupBusy, setLookupBusy] = useState<Record<string, boolean>>({});
+  const waitingForOptions = Object.values(lookupBusy).some(Boolean);
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState<{
     title: string;
@@ -106,6 +118,7 @@ export default function App() {
     setError("");
   }
   function logout() {
+    session.current = { token: "", generation: session.current.generation + 1 };
     setAuth("");
     setRole("");
     setRoles([]);
@@ -117,6 +130,17 @@ export default function App() {
     setExpiring([]);
     setPending(null);
     setBusy(false);
+  }
+  function expireSession(token: string, requestGeneration: number) {
+    if (
+      !token ||
+      session.current.token !== token ||
+      session.current.generation !== requestGeneration
+    )
+      return false;
+    logout();
+    setError("Your access changed. Sign in again.");
+    return true;
   }
   function beginRenewal(row: Row) {
     const starts = new Date(String(row.ends) + "T00:00:00Z");
@@ -198,6 +222,7 @@ export default function App() {
     method = "POST",
     token = auth,
   ) {
+    const requestSession = session.current;
     const res = await fetch("/api/" + path, {
       headers: {
         Authorization: "Basic " + token,
@@ -211,7 +236,17 @@ export default function App() {
         const e = await res.json();
         message = e.detail || e.error || message;
       } catch {}
-      throw new Error(message);
+      if (
+        [401, 403].includes(res.status) &&
+        token &&
+        requestSession.token === token
+      ) {
+        expireSession(token, requestSession.generation);
+        message = "Your access changed. Sign in again.";
+      }
+      if (res.status === 429)
+        message = "Too many sign-in attempts. Please wait before trying again.";
+      throw new RequestError(res.status, message);
     }
     return res.json();
   }
@@ -238,9 +273,14 @@ export default function App() {
             ? "FINANCE"
             : "COACH",
       );
+      session.current = { token, generation: session.current.generation + 1 };
       setAuth(token);
-    } catch {
-      setError("Sign-in failed. Check your credentials.");
+    } catch (error) {
+      setError(
+        error instanceof RequestError && error.status === 429
+          ? error.message
+          : "Sign-in failed. Check your credentials.",
+      );
     }
   }
   useEffect(() => {
@@ -414,6 +454,11 @@ export default function App() {
       initial={rows as { id: number; name: string }[]}
       defaultValue={defaults?.[name]}
       api={api}
+      onBusyChange={(value) =>
+        setLookupBusy((previous) =>
+          previous[name] === value ? previous : { ...previous, [name]: value },
+        )
+      }
     />
   );
   const input = (name: string, label: string, type = "text", extra = {}) => (
@@ -532,7 +577,13 @@ export default function App() {
           <AccountsPanel
             api={api}
             currentUsername={username}
-            onPasswordChanged={logout}
+            onPasswordChanged={() => {
+              if (
+                session.current.token === auth &&
+                session.current.generation === generation
+              )
+                logout();
+            }}
           />
         ) : tab === "Audit" ? (
           <AuditPanel api={api} />
@@ -651,25 +702,23 @@ export default function App() {
                   />
                 </label>
                 {tab !== "Clubs" && (
-                  <label>
-                    Filter by club
-                    <select
-                      aria-label="Filter by club"
-                      value={clubFilter}
-                      onChange={(e) => {
-                        setData([]);
-                        setClubFilter(e.target.value);
-                        setPage(0);
-                      }}
-                    >
-                      <option value="">All clubs</option>
-                      {clubs.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <LookupSelect
+                    key={tab}
+                    name="club-filter"
+                    label="Filter by club"
+                    searchLabel="Find a club"
+                    kind="clubs"
+                    initial={clubs as { id: number; name: string }[]}
+                    defaultValue={clubFilter}
+                    api={api}
+                    required={false}
+                    emptyLabel="All clubs"
+                    onChange={(value) => {
+                      setData([]);
+                      setClubFilter(value);
+                      setPage(0);
+                    }}
+                  />
                 )}
                 {tab === "Contracts" && (
                   <label>
@@ -834,6 +883,7 @@ export default function App() {
                 contractId={documentId}
                 auth={auth}
                 onClose={() => setDocumentId(null)}
+                onAccessDenied={() => expireSession(auth, generation)}
               />
             )}
             {profile && (
@@ -919,12 +969,17 @@ export default function App() {
                       })}
                     </>
                   )}
-                  <button className="submit" disabled={saving || busy}>
+                  <button
+                    className="submit"
+                    disabled={saving || busy || waitingForOptions}
+                  >
                     {saving
                       ? "Saving…"
-                      : renewing
-                        ? "Save renewal draft"
-                        : "Save record →"}
+                      : waitingForOptions
+                        ? "Loading options…"
+                        : renewing
+                          ? "Save renewal draft"
+                          : "Save record →"}
                   </button>
                 </form>
               </section>

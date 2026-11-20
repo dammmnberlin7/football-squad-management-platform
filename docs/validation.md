@@ -35,3 +35,7 @@ These are local Cloud checks, not a production deployment, a GitHub Actions remo
 ## Final request-validation review
 
 The full backend suite now passes 25 tests. Additional regressions verify that omitted minutes/goals/assists on create or edit return 400 and preserve existing statistics; explicit zero values remain valid. Account updates require an explicit enabled flag, and null role entries return 400 rather than an internal error. GitHub's remote Actions status could not be read because its API returned Forbidden; local results are recorded separately.
+
+## Access-recovery and larger-catalog review
+
+The latest full runs passed **26 backend tests, 13 component tests and 12 Chromium workflows**, with no failures/skips in the final runs. New coverage verifies real combined FINANCE/COACH authentication, revoked-access sign-out and cache clearing, stale rejection/password-change responses from older logins, rate-limit feedback, selector readiness before Save, and searchable club filters beyond the first 50 results. Browser tests create 55 additional clubs to verify the filter and then repeat the contract/transfer/renewal flows with the enlarged catalog; own-password reset and re-login are also exercised. Java packaging and the strict frontend build passed.

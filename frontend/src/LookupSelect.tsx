@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 type Choice = { id: string | number; name: string | number };
 export default function LookupSelect({
   name,
@@ -7,6 +7,11 @@ export default function LookupSelect({
   initial,
   defaultValue,
   api,
+  onChange,
+  required = true,
+  emptyLabel,
+  searchLabel,
+  onBusyChange,
 }: {
   name: string;
   label: string;
@@ -14,6 +19,11 @@ export default function LookupSelect({
   initial: Choice[];
   defaultValue?: string | number;
   api: (path: string) => Promise<unknown>;
+  onChange?: (id: string) => void;
+  required?: boolean;
+  emptyLabel?: string;
+  searchLabel?: string;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const [query, setQuery] = useState(""),
     [options, setOptions] = useState(initial),
@@ -21,9 +31,22 @@ export default function LookupSelect({
     [chosen, setChosen] = useState<Choice | undefined>(
       initial.find((c) => String(c.id) === String(defaultValue)),
     ),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [selectionError, setSelectionError] = useState(""),
+    [loading, setLoading] = useState(true),
+    [loadingSelection, setLoadingSelection] = useState(
+      Boolean(defaultValue) &&
+        !initial.some((c) => String(c.id) === String(defaultValue)),
+    );
+  const busyHandler = useRef(onBusyChange);
+  busyHandler.current = onBusyChange;
+  useEffect(() => {
+    busyHandler.current?.(loading || loadingSelection);
+  }, [loading, loadingSelection]);
+  useEffect(() => () => busyHandler.current?.(false), []);
   useEffect(() => {
     let active = true;
+    setLoading(true);
     api("lookups/" + kind + "?size=50&q=" + encodeURIComponent(query))
       .then((r) => {
         if (active) {
@@ -33,19 +56,34 @@ export default function LookupSelect({
       })
       .catch(() => {
         if (active) setError("Could not load options. Try another search.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
       });
     return () => {
       active = false;
     };
   }, [kind, query]);
   useEffect(() => {
-    if (!defaultValue || chosen) return;
+    if (!defaultValue || chosen) {
+      setLoadingSelection(false);
+      return;
+    }
     let active = true;
+    setLoadingSelection(true);
     api("lookups/" + kind + "?id=" + defaultValue)
       .then((r) => {
         if (active) setChosen((r as { content: Choice[] }).content?.[0]);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (active)
+          setSelectionError(
+            "The selected record is unavailable. Search for another.",
+          );
+      })
+      .finally(() => {
+        if (active) setLoadingSelection(false);
+      });
     return () => {
       active = false;
     };
@@ -57,7 +95,7 @@ export default function LookupSelect({
   return (
     <div className="lookup">
       <label htmlFor={"find-" + name}>
-        Find {label.toLowerCase()}
+        {searchLabel ?? "Find " + label.toLowerCase()}
         <input
           id={"find-" + name}
           type="search"
@@ -73,14 +111,18 @@ export default function LookupSelect({
           id={name}
           name={name}
           aria-label={label}
-          required
+          required={required}
           value={selected}
           onChange={(e) => {
             setSelected(e.target.value);
+            setSelectionError("");
+            onChange?.(e.target.value);
             setChosen(rows.find((c) => String(c.id) === e.target.value));
           }}
         >
-          <option value="">Select {label.toLowerCase()}</option>
+          <option value="">
+            {emptyLabel ?? "Select " + label.toLowerCase()}
+          </option>
           {rows.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
@@ -88,7 +130,12 @@ export default function LookupSelect({
           ))}
         </select>
       </label>
-      {error && <p role="alert">{error}</p>}
+      {(loading || loadingSelection) && (
+        <small role="status">Loading {label.toLowerCase()}…</small>
+      )}
+      {(selectionError || error) && (
+        <p role="alert">{selectionError || error}</p>
+      )}
     </div>
   );
 }

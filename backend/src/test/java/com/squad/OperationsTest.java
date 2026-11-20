@@ -346,4 +346,50 @@ class OperationsTest {
     mvc.perform(get("/api/users"))
         .andExpect(jsonPath("$[?(@.username == 'required-access-coach')].enabled").value(true));
   }
+
+  @Test
+  @WithMockUser(roles = "ADMIN")
+  void individualAccountsCombineGrantedRolesWithoutAdminPrivileges() throws Exception {
+    long player = player(club("Multi-role FC"));
+    String username = "finance-coach-combined", password = "test-combined-password";
+    post(
+        "users",
+        java.util.Map.of(
+            "username",
+            username,
+            "password",
+            password,
+            "roles",
+            java.util.List.of("FINANCE", "COACH")));
+    var auth =
+        org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors
+            .httpBasic(username, password);
+    mvc.perform(get("/api/contracts").with(auth)).andExpect(status().isOk());
+    mvc.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(
+                    "/api/performances")
+                .with(auth)
+                .contentType("application/json")
+                .content(
+                    json.writeValueAsBytes(
+                        java.util.Map.of(
+                            "playerId",
+                            player,
+                            "matchDate",
+                            "2026-01-01",
+                            "minutes",
+                            90,
+                            "goals",
+                            1,
+                            "assists",
+                            0))))
+        .andExpect(status().isOk());
+    mvc.perform(get("/api/users").with(auth)).andExpect(status().isForbidden());
+    mvc.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/clubs")
+                .with(auth)
+                .contentType("application/json")
+                .content("{\"name\":\"Not allowed\"}"))
+        .andExpect(status().isForbidden());
+  }
 }

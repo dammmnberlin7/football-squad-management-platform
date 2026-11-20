@@ -63,3 +63,9 @@ The Renew/Prepare renewal actions prefill a new one-year draft beginning the day
 - `GET /api/audit?page=0&size=20&q=` pages audit events. ADMIN sees all, FINANCE sees financial resources only. No audit update/delete endpoint exists.
 - `GET/POST /api/users`, `PUT /api/users/{id}` manage accounts as ADMIN. Creates require username, password and roles. Updates require version, roles, enabled and an optional replacement password. Responses exclude passwords/hashes.
 - `POST /api/dev/demo` is ADMIN-only, idempotent, append-only and registered only in dev. `GET /api/auth/config` is public and exposes mode/demo availability without secrets.
+
+## Access and selector recovery
+
+Authenticated API or document requests that return 401/403 clear the current browser session and cached financial state, then show a sign-in prompt. Request ownership includes a login generation, so a late rejection or password-change completion from an older login cannot sign out a newer session, even when the credentials are the same. Login throttling receives a specific wait-and-retry message.
+
+Club filters use the same bounded server lookup as record selectors, including clubs outside the first loaded catalog page. Existing off-page selections resolve by ID; forms show loading feedback and disable Save until selector loading finishes. Finance/coach multi-role accounts combine both capabilities without acquiring administrator permissions.

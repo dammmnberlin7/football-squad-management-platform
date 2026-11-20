@@ -1,4 +1,13 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+async function choose(page: Page, label: string, value: string) {
+  await page
+    .getByRole("searchbox", {
+      name: "Find " + label.toLowerCase(),
+      exact: true,
+    })
+    .fill(value);
+  await page.getByLabel(label, { exact: true }).selectOption({ label: value });
+}
 test.beforeAll(async ({ request }) => {
   await expect
     .poll(
@@ -46,7 +55,7 @@ test("admin completes club, player, contract, performance and transfer workflows
     .click();
   await page.getByLabel("Player name").fill(p);
   await page.getByLabel("Position", { exact: true }).fill("Forward");
-  await page.getByLabel("Club", { exact: true }).selectOption({ label: a });
+  await choose(page, "Club", a);
   await page.getByRole("button", { name: "Save record →" }).click();
   await page.getByRole("searchbox", { name: "Search players" }).fill(p);
   await expect(page.getByRole("cell", { name: p, exact: true })).toBeVisible();
@@ -60,8 +69,8 @@ test("admin completes club, player, contract, performance and transfer workflows
     .getByRole("button", { name: "Contracts", exact: false })
     .first()
     .click();
-  await page.getByLabel("Player", { exact: true }).selectOption({ label: p });
-  await page.getByLabel("Club", { exact: true }).selectOption({ label: a });
+  await choose(page, "Player", p);
+  await choose(page, "Club", a);
   await page.getByRole("searchbox", { name: "Search contracts" }).fill(p);
   await page.getByLabel("Starts").fill("2026-01-01");
   await page.getByLabel("Ends").fill("2028-12-31");
@@ -89,6 +98,9 @@ test("admin completes club, player, contract, performance and transfer workflows
     "2029-12-31",
   );
   await page.getByLabel("Annual salary").fill("110000");
+  await expect(
+    page.getByLabel("Player", { exact: true }).locator("option:checked"),
+  ).not.toHaveText("Select player");
   await page.getByRole("button", { name: "Save renewal draft" }).click();
   await expect(
     page.getByRole("cell", { name: "100000", exact: true }),
@@ -109,7 +121,7 @@ test("admin completes club, player, contract, performance and transfer workflows
     .getByRole("button", { name: "Performances", exact: false })
     .first()
     .click();
-  await page.getByLabel("Player", { exact: true }).selectOption({ label: p });
+  await choose(page, "Player", p);
   await page.getByLabel("Match date").fill("2026-01-01");
   await page.getByLabel("Minutes", { exact: true }).fill("90");
   await page.getByLabel("Goals", { exact: true }).fill("2");
@@ -132,10 +144,8 @@ test("admin completes club, player, contract, performance and transfer workflows
     .getByRole("button", { name: "Transfers", exact: false })
     .first()
     .click();
-  await page.getByLabel("Player", { exact: true }).selectOption({ label: p });
-  await page
-    .getByLabel("Destination club", { exact: true })
-    .selectOption({ label: b });
+  await choose(page, "Player", p);
+  await choose(page, "Destination club", b);
   await page.getByRole("searchbox", { name: "Search transfers" }).fill(p);
   await page.getByLabel("Transfer fee").fill("250000");
   await page.getByRole("button", { name: "Save record →" }).click();
@@ -276,6 +286,9 @@ test("finance prepares a renewal from the expiry dashboard", async ({
     next.toISOString().slice(0, 10),
   );
   await expect(page.getByLabel("Annual salary")).toHaveValue("75000");
+  await expect(
+    page.getByLabel("Player", { exact: true }).locator("option:checked"),
+  ).not.toHaveText("Select player");
   await page.getByRole("button", { name: "Save renewal draft" }).click();
   await page.getByRole("searchbox", { name: "Search contracts" }).fill(name);
   await expect(

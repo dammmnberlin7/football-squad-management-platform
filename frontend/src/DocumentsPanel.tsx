@@ -11,10 +11,12 @@ export default function DocumentsPanel({
   contractId,
   auth,
   onClose,
+  onAccessDenied,
 }: {
   contractId: number;
   auth: string;
   onClose: () => void;
+  onAccessDenied?: () => void;
 }) {
   const [documents, setDocuments] = useState<Doc[]>([]),
     [error, setError] = useState(""),
@@ -27,6 +29,7 @@ export default function DocumentsPanel({
     setDocuments([]);
     fetch(path, { headers: { Authorization: "Basic " + auth } })
       .then(async (r) => {
+        if ([401, 403].includes(r.status)) onAccessDenied?.();
         if (!r.ok) throw new Error("Could not load documents");
         return r.json();
       })
@@ -60,6 +63,7 @@ export default function DocumentsPanel({
         },
         body: data,
       });
+      if ([401, 403].includes(res.status)) onAccessDenied?.();
       if (!res.ok) {
         const error = await res.json();
         throw new Error(error.detail || error.error || "Upload failed");
@@ -79,6 +83,7 @@ export default function DocumentsPanel({
       const r = await fetch(path + "/" + doc.id, {
         headers: { Authorization: "Basic " + auth },
       });
+      if ([401, 403].includes(r.status)) onAccessDenied?.();
       if (!r.ok) throw new Error("Download failed");
       const url = URL.createObjectURL(await r.blob());
       const a = document.createElement("a");

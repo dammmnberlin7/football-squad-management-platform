@@ -164,3 +164,193 @@ it("clears the financial page and edit defaults when changing from admin to coac
   expect(screen.queryByText("123456")).toBeNull();
   expect(screen.queryByRole("button", { name: /^Contracts/ })).toBeNull();
 });
+it("clears cached financial state when the current session loses access", async () => {
+  let denied = false;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string) => ({
+      ok: !denied,
+      status: denied ? 401 : 200,
+      json: async () =>
+        denied
+          ? { error: "Invalid credentials" }
+          : input.endsWith("/me")
+            ? { roles: ["ROLE_FINANCE"], username: "finance" }
+            : input.endsWith("/dashboard")
+              ? { transferSpend: 9999 }
+              : input.includes("/registers/")
+                ? { content: [], totalElements: 0, totalPages: 0 }
+                : [],
+    })),
+  );
+  render(<App />);
+  const u = userEvent.setup();
+  await u.type(screen.getByLabelText("Username"), "finance");
+  await u.type(screen.getByLabelText("Password"), "dev-finance");
+  await u.click(screen.getByRole("button", { name: /Sign in/ }));
+  await screen.findByText("€9,999");
+  denied = true;
+  await u.click(screen.getByRole("button", { name: /^Contracts/ }));
+  await screen.findByLabelText("Username");
+  expect(screen.getByRole("alert").textContent).toContain("Sign in again");
+  expect(screen.queryByText("€9,999")).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Contracts/ })).toBeNull();
+});
+it("ignores a delayed rejection from an earlier login with the same credentials", async () => {
+  let finishHistory: ((value: unknown) => void) | undefined;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string) => {
+      if (input.endsWith("/history"))
+        return new Promise((resolve) => {
+          finishHistory = resolve;
+        });
+      return {
+        ok: true,
+        status: 200,
+        json: async () =>
+          input.endsWith("/me")
+            ? { roles: ["ROLE_ADMIN"], username: "admin" }
+            : input.endsWith("/dashboard")
+              ? { clubs: 1 }
+              : input.includes("/registers/contracts?")
+                ? {
+                    content: [
+                      {
+                        id: 1,
+                        version: 1,
+                        playerId: 1,
+                        clubId: 1,
+                        starts: "2026-01-01",
+                        ends: "2029-01-01",
+                        salary: 100,
+                        status: "SIGNED",
+                      },
+                    ],
+                    totalElements: 1,
+                    totalPages: 1,
+                  }
+                : [],
+      };
+    }),
+  );
+  render(<App />);
+  const u = userEvent.setup();
+  async function signIn() {
+    await u.type(screen.getByLabelText("Username"), "admin");
+    await u.type(screen.getByLabelText("Password"), "dev-admin");
+    await u.click(screen.getByRole("button", { name: /Sign in/ }));
+    await screen.findByText("Club command centre");
+  }
+  await signIn();
+  await u.click(screen.getByRole("button", { name: /^Contracts/ }));
+  await u.click(await screen.findByRole("button", { name: "History" }));
+  await waitFor(() => expect(finishHistory).toBeTypeOf("function"));
+  await u.click(screen.getByRole("button", { name: "Sign out" }));
+  await signIn();
+  const { act } = await import("@testing-library/react");
+  await act(async () => {
+    finishHistory?.({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: "Invalid credentials" }),
+    });
+  });
+  expect(screen.getByText("Club command centre")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+it("shows a useful message when sign-in is rate limited", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: false,
+      status: 429,
+      json: async () => ({ error: "Too many authentication failures" }),
+    })),
+  );
+  render(<App />);
+  const u = userEvent.setup();
+  await u.type(screen.getByLabelText("Username"), "admin");
+  await u.type(screen.getByLabelText("Password"), "wrong");
+  await u.click(screen.getByRole("button", { name: /Sign in/ }));
+  await waitFor(() =>
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Please wait before trying again",
+    ),
+  );
+});
+it("does not sign out a new user when a previous account password update finishes late", async () => {
+  let finishUpdate: ((value: unknown) => void) | undefined;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string, init?: RequestInit) => {
+      if (input.endsWith("/users/1") && init?.method === "PUT")
+        return new Promise((resolve) => {
+          finishUpdate = resolve;
+        });
+      const coach =
+        (init?.headers as Record<string, string>)?.Authorization ===
+        "Basic " + btoa("coach:dev-coach");
+      return {
+        ok: true,
+        status: 200,
+        json: async () =>
+          input.endsWith("/me")
+            ? {
+                username: coach ? "coach" : "admin",
+                roles: [coach ? "ROLE_COACH" : "ROLE_ADMIN"],
+              }
+            : input.endsWith("/dashboard")
+              ? { clubs: 1 }
+              : input.endsWith("/users")
+                ? [
+                    {
+                      id: 1,
+                      version: 0,
+                      username: "admin",
+                      roles: ["ADMIN"],
+                      enabled: true,
+                    },
+                  ]
+                : [],
+      };
+    }),
+  );
+  render(<App />);
+  const u = userEvent.setup();
+  async function signIn(name: string) {
+    await u.type(screen.getByLabelText("Username"), name);
+    await u.type(screen.getByLabelText("Password"), "dev-" + name);
+    await u.click(screen.getByRole("button", { name: /Sign in/ }));
+    await screen.findByText("Club command centre");
+  }
+  await signIn("admin");
+  await u.click(screen.getByRole("button", { name: /^Users/ }));
+  await u.click(await screen.findByRole("button", { name: "Manage account" }));
+  await u.type(
+    screen.getByLabelText("New password (optional)"),
+    "updated-admin-password",
+  );
+  await u.click(screen.getByRole("button", { name: "Save account" }));
+  await waitFor(() => expect(finishUpdate).toBeTypeOf("function"));
+  await u.click(screen.getByRole("button", { name: "Sign out" }));
+  await signIn("coach");
+  const { act } = await import("@testing-library/react");
+  await act(async () => {
+    finishUpdate?.({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        id: 1,
+        version: 1,
+        username: "admin",
+        roles: ["ADMIN"],
+        enabled: true,
+      }),
+    });
+  });
+  expect(screen.getByText("Club command centre")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /^Users/ })).toBeNull();
+});
