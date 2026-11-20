@@ -34,3 +34,17 @@ jobs:
           done
           curl -fsS http://127.0.0.1:8080/actuator/health
           npm --prefix frontend run test:e2e
+      - name: Build and smoke-test packaged container
+        run: |
+          docker build -t touchline:ci .
+          docker run -d --name touchline-ci --read-only --tmpfs /tmp:size=128m --cap-drop ALL --security-opt no-new-privileges:true -e SPRING_PROFILES_ACTIVE=dev -p 127.0.0.1:8180:8080 touchline:ci
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8180/actuator/health; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8180/actuator/health
+          curl -fsS http://127.0.0.1:8180/ | grep -q Touchline
+          docker exec touchline-ci bash /app/healthcheck.sh
+      - name: Remove test container
+        if: always()
+        run: docker rm -f touchline-ci || true

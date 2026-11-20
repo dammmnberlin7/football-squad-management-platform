@@ -7,3 +7,6 @@
 **/*.tsbuildinfo
 **/test-results/
 **/playwright-report/
+*.pem
+*.key
+production.env

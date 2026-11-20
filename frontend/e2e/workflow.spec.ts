@@ -1,4 +1,19 @@
 import { test, expect } from "@playwright/test";
+test.beforeAll(async ({ request }) => {
+  await expect
+    .poll(
+      async () => {
+        try {
+          return (await request.get("/actuator/health")).status();
+        } catch {
+          return 0;
+        }
+      },
+      { timeout: 60000 },
+    )
+    .toBe(200);
+});
+
 test("admin completes club, player, contract, performance and transfer workflows", async ({
   page,
 }) => {
@@ -118,7 +133,9 @@ test("admin completes club, player, contract, performance and transfer workflows
     .first()
     .click();
   await page.getByLabel("Player", { exact: true }).selectOption({ label: p });
-  await page.getByLabel("Destination club").selectOption({ label: b });
+  await page
+    .getByLabel("Destination club", { exact: true })
+    .selectOption({ label: b });
   await page.getByRole("searchbox", { name: "Search transfers" }).fill(p);
   await page.getByLabel("Transfer fee").fill("250000");
   await page.getByRole("button", { name: "Save record →" }).click();

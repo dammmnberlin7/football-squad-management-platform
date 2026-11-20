@@ -410,3 +410,42 @@ dialog::backdrop {
     gap: 20px;
   }
 }
+fieldset {
+  border: 1px solid #d2dcd2;
+  border-radius: 6px;
+  padding: 12px;
+}
+legend {
+  font-size: 12px;
+  color: #62776b;
+}
+.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+}
+.check input {
+  width: auto;
+}
+.document-list {
+  list-style: none;
+  padding: 0;
+}
+.document-list li {
+  border-bottom: 1px solid #edf1ea;
+  padding: 14px 0;
+  display: grid;
+  gap: 10px;
+}
+.document-list span,
+.document-list details {
+  font-size: 12px;
+  color: #63786c;
+}
+.document-list code {
+  overflow-wrap: anywhere;
+}
+.document-list button {
+  justify-self: start;
+}

@@ -1,4 +1,8 @@
 import { useState, useEffect, type FormEvent } from "react";
+import LookupSelect from "./LookupSelect";
+import AccountsPanel from "./AccountsPanel";
+import AuditPanel from "./AuditPanel";
+import DocumentsPanel from "./DocumentsPanel";
 import ConfirmDialog from "./ConfirmDialog";
 import PlayerProfile, { type PlayerSummary } from "./PlayerProfile";
 type Row = Record<string, string | number>;
@@ -9,10 +13,20 @@ const tabs = [
   "Contracts",
   "Transfers",
   "Performances",
+  "Audit",
+  "Users",
 ];
 export default function App() {
   const [auth, setAuth] = useState("");
+  const [username, setUsername] = useState("");
+  const [config, setConfig] = useState({
+    mode: "development",
+    demoAvailable: false,
+  });
+  const [total, setTotal] = useState(0);
+  const [documentId, setDocumentId] = useState<number | null>(null);
   const [role, setRole] = useState("");
+  const [roles, setRoles] = useState<string[]>([]);
   const [tab, setTab] = useState("Overview");
   const [data, setData] = useState<Row[]>([]);
   const [stats, setStats] = useState<Row>({});
@@ -60,40 +74,24 @@ export default function App() {
       return clubs.find((c) => c.id === value)?.name ?? value;
     return String(value ?? "—");
   };
-  const filteredRows = data.filter((row) => {
-    if (
-      clubFilter &&
-      ![
-        row.clubId,
-        row.fromClubId,
-        row.toClubId,
-        tab === "Clubs" ? row.id : undefined,
-        tab === "Performances"
-          ? players.find((p) => p.id === row.playerId)?.clubId
-          : undefined,
-      ].some((id) => String(id) === clubFilter)
-    )
-      return false;
-    if (statusFilter && row.status !== statusFilter) return false;
-    return Object.entries(row)
-      .filter(([key]) => visible(key))
-      .some(([key, value]) =>
-        String(cell(key, value))
-          .toLocaleLowerCase()
-          .includes(query.trim().toLocaleLowerCase()),
-      );
-  });
-  const pageCount = Math.max(1, Math.ceil(filteredRows.length / 10));
-  const currentPage = Math.min(page, pageCount - 1);
-  const displayedRows = filteredRows.slice(
-    currentPage * 10,
-    (currentPage + 1) * 10,
-  );
+  const filteredRows = data;
+  const pageCount = Math.max(1, Math.ceil(total / 10));
+  const currentPage = page;
+  const displayedRows = data;
+  const allowed = (t: string) =>
+    t === "Users"
+      ? admin
+      : t === "Audit"
+        ? finance
+        : finance || !["Contracts", "Transfers"].includes(t);
   const defaults = editing ?? renewing;
   function navigate(next: string) {
     if (next === tab) refresh((x) => x + 1);
+    setBusy(false);
     setTab(next);
     setData([]);
+    setTotal(0);
+    setDocumentId(null);
     setEditing(null);
     setRenewing(null);
     setProfileId(null);
@@ -110,6 +108,8 @@ export default function App() {
   function logout() {
     setAuth("");
     setRole("");
+    setRoles([]);
+    setUsername("");
     navigate("Overview");
     setClubs([]);
     setPlayers([]);
@@ -184,6 +184,14 @@ export default function App() {
       active = false;
     };
   }, [auth, historyId, revision]);
+  useEffect(() => {
+    fetch("/api/auth/config")
+      .then((r) => r.json())
+      .then((c) => {
+        if (c.mode) setConfig(c);
+      })
+      .catch(() => {});
+  }, []);
   async function api(
     path: string,
     body?: unknown,
@@ -211,11 +219,25 @@ export default function App() {
     e.preventDefault();
     setError("");
     const f = new FormData(e.currentTarget);
-    const token = btoa(f.get("username") + ":" + f.get("password"));
+    const token = btoa(
+      String.fromCharCode(
+        ...new TextEncoder().encode(
+          f.get("username") + ":" + f.get("password"),
+        ),
+      ),
+    );
     try {
       const me = await api("me", undefined, "GET", token);
       navigate("Overview");
-      setRole(me.roles[0].replace("ROLE_", ""));
+      setRoles(me.roles.map((r: string) => r.replace("ROLE_", "")));
+      setUsername(me.username ?? String(f.get("username")));
+      setRole(
+        me.roles.some((r: string) => r === "ROLE_ADMIN")
+          ? "ADMIN"
+          : me.roles.some((r: string) => r === "ROLE_FINANCE")
+            ? "FINANCE"
+            : "COACH",
+      );
       setAuth(token);
     } catch {
       setError("Sign-in failed. Check your credentials.");
@@ -224,30 +246,90 @@ export default function App() {
   useEffect(() => {
     if (!auth) return;
     let active = true;
-    setBusy(true);
-    setError("");
     Promise.all([
       api("dashboard"),
-      api("clubs"),
-      api("players"),
-      tab === "Overview" ? Promise.resolve([]) : api(tab.toLowerCase()),
+      api("lookups/clubs?size=100"),
+      api("lookups/players?size=100"),
       finance ? api("contracts/expiring?days=90") : Promise.resolve([]),
     ])
-      .then(([s, c, p, d, due]) => {
+      .then(([s, c, p, due]) => {
         if (active) {
           setStats(s);
-          setClubs(c);
-          setPlayers(p);
-          setData(d);
+          setClubs((previous) =>
+            Array.from(
+              new Map(
+                [...previous, ...(c.content ?? [])].map((row) => [row.id, row]),
+              ).values(),
+            ),
+          );
+          setPlayers((previous) =>
+            Array.from(
+              new Map(
+                [...previous, ...(p.content ?? [])].map((row) => [row.id, row]),
+              ).values(),
+            ),
+          );
           setExpiring(due);
         }
       })
-      .catch((e) => active && setError(e.message))
-      .finally(() => active && setBusy(false));
+      .catch((e) => {
+        if (active) setError(e.message);
+      });
     return () => {
       active = false;
     };
-  }, [auth, tab, revision]);
+  }, [auth, revision]);
+  useEffect(() => {
+    if (!auth || ["Overview", "Users", "Audit"].includes(tab)) return;
+    let active = true;
+    setBusy(true);
+    setError("");
+    const params = new URLSearchParams({
+      page: String(page),
+      size: "10",
+      q: query,
+    });
+    if (clubFilter) params.set("clubId", clubFilter);
+    if (statusFilter) params.set("status", statusFilter);
+    api("registers/" + tab.toLowerCase() + "?" + params)
+      .then((result) => {
+        if (active) {
+          setPlayers((previous) =>
+            Array.from(
+              new Map(
+                [...previous, ...(result.players ?? [])].map((row) => [
+                  row.id,
+                  row,
+                ]),
+              ).values(),
+            ),
+          );
+          setClubs((previous) =>
+            Array.from(
+              new Map(
+                [...previous, ...(result.clubs ?? [])].map((row) => [
+                  row.id,
+                  row,
+                ]),
+              ).values(),
+            ),
+          );
+          setData(result.content);
+          setTotal(result.totalElements);
+          if (page > 0 && page >= result.totalPages)
+            setPage(Math.max(0, result.totalPages - 1));
+        }
+      })
+      .catch((e) => {
+        if (active) setError(e.message);
+      })
+      .finally(() => {
+        if (active) setBusy(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [auth, tab, page, query, clubFilter, statusFilter, revision]);
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = e.currentTarget;
@@ -325,23 +407,14 @@ export default function App() {
     });
   }
   const select = (name: string, rows: Row[], label: string) => (
-    <label htmlFor={name}>
-      {label}
-      <select
-        aria-label={label}
-        id={name}
-        name={name}
-        defaultValue={defaults?.[name] ?? ""}
-        required
-      >
-        <option value="">Select {label.toLowerCase()}</option>
-        {rows.map((r) => (
-          <option key={r.id} value={r.id}>
-            {r.name}
-          </option>
-        ))}
-      </select>
-    </label>
+    <LookupSelect
+      name={name}
+      label={label}
+      kind={name === "playerId" ? "players" : "clubs"}
+      initial={rows as { id: number; name: string }[]}
+      defaultValue={defaults?.[name]}
+      api={api}
+    />
   );
   const input = (name: string, label: string, type = "text", extra = {}) => (
     <label htmlFor={name}>
@@ -373,37 +446,37 @@ export default function App() {
           <button>Sign in →</button>
         </form>
         {error && <p role="alert">{error}</p>}
-        <small>
-          Development accounts: admin, finance, coach.
-          <br />
-          Password: dev- followed by the account name.
-        </small>
+        {config.mode !== "production" && (
+          <small>
+            Development accounts: admin, finance, coach.
+            <br />
+            Password: dev- followed by the account name.
+          </small>
+        )}
       </main>
     );
   const canCreate =
-    admin ||
+    (admin && !["Audit", "Users"].includes(tab)) ||
     (finance && ["Contracts", "Transfers"].includes(tab)) ||
-    (["ADMIN", "COACH"].includes(role) && tab === "Performances");
+    ((admin || roles.includes("COACH")) && tab === "Performances");
   return (
     <div className="shell">
       <aside>
         <div className="brand">◈ TOUCHLINE</div>
         <p className="caption">FOOTBALL OPERATIONS</p>
         <nav>
-          {tabs
-            .filter((t) => finance || !["Contracts", "Transfers"].includes(t))
-            .map((t) => (
-              <button
-                aria-current={tab === t ? "page" : undefined}
-                className={tab === t ? "active" : ""}
-                key={t}
-                disabled={saving}
-                onClick={() => navigate(t)}
-              >
-                {t}
-                <span>→</span>
-              </button>
-            ))}
+          {tabs.filter(allowed).map((t) => (
+            <button
+              aria-current={tab === t ? "page" : undefined}
+              className={tab === t ? "active" : ""}
+              key={t}
+              disabled={saving}
+              onClick={() => navigate(t)}
+            >
+              {t}
+              <span>→</span>
+            </button>
+          ))}
         </nav>
         <div className="account">
           <strong>{role}</strong>
@@ -455,8 +528,45 @@ export default function App() {
             onCancel={() => setPending(null)}
           />
         )}
-        {tab === "Overview" ? (
+        {tab === "Users" ? (
+          <AccountsPanel
+            api={api}
+            currentUsername={username}
+            onPasswordChanged={logout}
+          />
+        ) : tab === "Audit" ? (
+          <AuditPanel api={api} />
+        ) : tab === "Overview" ? (
           <>
+            {admin && config.demoAvailable && (
+              <section className="panel">
+                <h2>Explore the platform</h2>
+                <p>
+                  Load three sample clubs, eighteen players and performance
+                  records. Existing records are preserved.
+                </p>
+                <button
+                  onClick={() =>
+                    setPending({
+                      title: "Load demo data?",
+                      description:
+                        "This adds fictional records once to the disposable development database. It does not reset existing work.",
+                      run: async () => {
+                        const result = await api("dev/demo", {});
+                        refresh((x) => x + 1);
+                        setNotice(
+                          result.alreadyLoaded
+                            ? "Demo data is already loaded."
+                            : "Demo data loaded. Explore the registers and dashboard.",
+                        );
+                      },
+                    })
+                  }
+                >
+                  Load demo data
+                </button>
+              </section>
+            )}
             <div className="stats">
               {Object.entries(stats).map(([k, v]) => (
                 <article key={k}>
@@ -511,9 +621,7 @@ export default function App() {
               <div className="quick">
                 {tabs
                   .slice(1)
-                  .filter(
-                    (t) => finance || !["Contracts", "Transfers"].includes(t),
-                  )
+                  .filter(allowed)
                   .map((t) => (
                     <button key={t} onClick={() => navigate(t)}>
                       Open {t.toLowerCase()} →
@@ -526,10 +634,7 @@ export default function App() {
           <>
             <section className="panel">
               <h2>
-                {tab} register{" "}
-                <small>
-                  {filteredRows.length} of {data.length} records
-                </small>
+                {tab} register <small>{total} records</small>
               </h2>
               <div className="register-tools">
                 <label>
@@ -538,10 +643,11 @@ export default function App() {
                     type="search"
                     value={query}
                     onChange={(e) => {
+                      setData([]);
                       setQuery(e.target.value);
                       setPage(0);
                     }}
-                    placeholder="Search by name or record details"
+                    placeholder="Search names, clubs or status"
                   />
                 </label>
                 {tab !== "Clubs" && (
@@ -551,6 +657,7 @@ export default function App() {
                       aria-label="Filter by club"
                       value={clubFilter}
                       onChange={(e) => {
+                        setData([]);
                         setClubFilter(e.target.value);
                         setPage(0);
                       }}
@@ -571,6 +678,7 @@ export default function App() {
                       aria-label="Contract status"
                       value={statusFilter}
                       onChange={(e) => {
+                        setData([]);
                         setStatusFilter(e.target.value);
                         setPage(0);
                       }}
@@ -585,22 +693,24 @@ export default function App() {
               </div>
               {filteredRows.length === 0 ? (
                 <p>
-                  {data.length === 0
-                    ? "No records yet."
-                    : "No records match your search or filters."}
+                  {query || clubFilter || statusFilter
+                    ? "No records match your search or filters."
+                    : "No records yet."}
                 </p>
               ) : (
                 <div className="table">
                   <table>
                     <thead>
                       <tr>
-                        {Object.keys(data[0])
+                        {Object.keys(data[0] ?? {})
                           .filter(visible)
                           .map((k) => (
                             <th key={k}>{heading(k)}</th>
                           ))}
                         {(tab === "Players" ||
-                          (["Clubs", "Contracts"].includes(tab) &&
+                          (["Clubs", "Contracts", "Performances"].includes(
+                            tab,
+                          ) &&
                             canCreate)) && <th>Actions</th>}
                       </tr>
                     </thead>
@@ -613,7 +723,9 @@ export default function App() {
                               <td key={k}>{cell(k, v)}</td>
                             ))}
                           {(tab === "Players" ||
-                            (["Clubs", "Contracts"].includes(tab) &&
+                            (["Clubs", "Contracts", "Performances"].includes(
+                              tab,
+                            ) &&
                               canCreate)) && (
                             <td>
                               {tab === "Players" && (
@@ -663,6 +775,13 @@ export default function App() {
                                     </button>
                                   )}
                                   <button
+                                    onClick={() =>
+                                      setDocumentId(Number(row.id))
+                                    }
+                                  >
+                                    Documents
+                                  </button>
+                                  <button
                                     onClick={() => setHistoryId(Number(row.id))}
                                   >
                                     History
@@ -677,7 +796,7 @@ export default function App() {
                   </table>
                 </div>
               )}
-              {filteredRows.length > 10 && (
+              {total > 10 && (
                 <div className="pagination">
                   <button
                     className="secondary"
@@ -710,6 +829,13 @@ export default function App() {
                 </div>
               )}
             </section>
+            {documentId !== null && finance && (
+              <DocumentsPanel
+                contractId={documentId}
+                auth={auth}
+                onClose={() => setDocumentId(null)}
+              />
+            )}
             {profile && (
               <PlayerProfile
                 summary={profile}
@@ -740,7 +866,9 @@ export default function App() {
                     tab +
                     String(
                       editing?.id ?? (renewing ? "renew" + renewing.id : "new"),
-                    )
+                    ) +
+                    ":" +
+                    revision
                   }
                   className="gridform"
                   onSubmit={submit}

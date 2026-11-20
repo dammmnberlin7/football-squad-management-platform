@@ -1,0 +1,13 @@
+.git
+**/node_modules
+**/target/**
+!backend/target/squad-0.1.0.jar
+.env
+**/.env
+**/*.pem
+**/*.key
+**/test-results
+**/playwright-report
+**/*.log
+production.env
+**/production.env

@@ -55,13 +55,29 @@ it("searches names, pages registers and shows an empty search result", async () 
     vi.fn(async (input: string) => ({
       ok: true,
       json: async () =>
-        input.endsWith("/me")
-          ? { roles: ["ROLE_ADMIN"] }
-          : input.endsWith("/dashboard")
-            ? { clubs: 12 }
-            : input.endsWith("/clubs")
-              ? clubs
-              : [],
+        input.includes("/registers/clubs?")
+          ? (() => {
+              const url = new URL(input, "http://test");
+              const page = Number(url.searchParams.get("page")),
+                size = Number(url.searchParams.get("size"));
+              const filtered = clubs.filter((c) =>
+                c.name
+                  .toLowerCase()
+                  .includes((url.searchParams.get("q") ?? "").toLowerCase()),
+              );
+              return {
+                content: filtered.slice(page * size, (page + 1) * size),
+                totalElements: filtered.length,
+                totalPages: Math.ceil(filtered.length / size),
+              };
+            })()
+          : input.endsWith("/me")
+            ? { roles: ["ROLE_ADMIN"] }
+            : input.endsWith("/dashboard")
+              ? { clubs: 12 }
+              : input.endsWith("/clubs")
+                ? clubs
+                : [],
     })),
   );
   render(<App />);
@@ -101,19 +117,23 @@ it("clears the financial page and edit defaults when changing from admin to coac
             ? { roles: [coach ? "ROLE_COACH" : "ROLE_ADMIN"] }
             : input.endsWith("/dashboard")
               ? { players: 1 }
-              : input.endsWith("/contracts")
-                ? [
-                    {
-                      id: 1,
-                      version: 0,
-                      playerId: 1,
-                      clubId: 1,
-                      starts: "2026-01-01",
-                      ends: "2028-01-01",
-                      salary: 123456,
-                      status: "DRAFT",
-                    },
-                  ]
+              : input.includes("/registers/contracts?")
+                ? {
+                    totalElements: 1,
+                    totalPages: 1,
+                    content: [
+                      {
+                        id: 1,
+                        version: 0,
+                        playerId: 1,
+                        clubId: 1,
+                        starts: "2026-01-01",
+                        ends: "2028-01-01",
+                        salary: 123456,
+                        status: "DRAFT",
+                      },
+                    ],
+                  }
                 : [],
       };
     }),

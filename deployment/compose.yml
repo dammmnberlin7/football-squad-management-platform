@@ -1,0 +1,34 @@
+services:
+  app:
+    build:
+      context: ..
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: production
+      DB_JDBC_URL: ${DB_JDBC_URL:?Set DB_JDBC_URL securely}
+      DB_USERNAME: ${DB_USERNAME:?Set DB_USERNAME securely}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD securely}
+      APP_BOOTSTRAP_ADMIN_USERNAME: ${APP_BOOTSTRAP_ADMIN_USERNAME:?Set initial administrator username}
+      APP_BOOTSTRAP_ADMIN_PASSWORD: ${APP_BOOTSTRAP_ADMIN_PASSWORD:?Set initial administrator password securely}
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 1g
+    networks: [private]
+  proxy:
+    image: nginx:1.28-alpine
+    restart: unless-stopped
+    ports: ['80:80', '443:443']
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?Set public application hostname}
+    volumes:
+      - ./nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ${TLS_CERT_DIR:?Set directory containing fullchain.pem and privkey.pem}:/etc/nginx/certs:ro
+    depends_on:
+      app:
+        condition: service_healthy
+    networks: [private]
+networks:
+  private:
