@@ -40,7 +40,8 @@ class WorkflowTest {
                 .with(
                     org.springframework.security.test.web.servlet.request
                         .SecurityMockMvcRequestPostProcessors.httpBasic("coach", "wrong")))
-        .andExpect(status().isUnauthorized());
+        .andExpect(status().isUnauthorized())
+        .andExpect(header().doesNotExist("WWW-Authenticate"));
   }
 
   @Test

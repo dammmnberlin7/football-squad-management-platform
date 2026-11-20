@@ -21,6 +21,7 @@ public class Api {
   final PerformanceRepository performances;
   final ContractEventRepository events;
   final Clock clock;
+  final Audit audit;
 
   Api(
       ClubRepository c,
@@ -29,7 +30,9 @@ public class Api {
       TransferRepository t,
       PerformanceRepository pe,
       ContractEventRepository e,
-      Clock clock) {
+      Clock clock,
+      Audit audit) {
+    this.audit = audit;
     this.clock = clock;
     clubs = c;
     players = p;
@@ -94,7 +97,9 @@ public class Api {
   Club createClub(@Valid @RequestBody ClubInput i) {
     var c = new Club();
     c.name = i.name();
-    return clubs.save(c);
+    clubs.save(c);
+    audit.record("CREATED", "CLUB", c.id);
+    return c;
   }
 
   @PutMapping(value = "/clubs/{id}", consumes = "application/json")
@@ -103,6 +108,7 @@ public class Api {
     var c = clubs.findById(id).orElseThrow();
     version(c.version, i.version());
     c.name = i.name();
+    audit.record("UPDATED", "CLUB", c.id);
     return c;
   }
 
@@ -150,7 +156,9 @@ public class Api {
     p.name = i.name();
     p.position = i.position();
     p.clubId = i.clubId();
-    return players.save(p);
+    players.save(p);
+    audit.record("CREATED", "PLAYER", p.id);
+    return p;
   }
 
   @PutMapping(value = "/players/{id}", consumes = "application/json")
@@ -162,6 +170,7 @@ public class Api {
       throw new IllegalArgumentException("Use transfers to change club");
     p.name = i.name();
     p.position = i.position();
+    audit.record("UPDATED", "PLAYER", p.id);
     return p;
   }
 
@@ -199,7 +208,9 @@ public class Api {
   Contract draft(@Valid @RequestBody ContractInput i) {
     var c = new Contract();
     fill(c, i);
-    return contracts.save(c);
+    contracts.save(c);
+    audit.record("DRAFT_CREATED", "CONTRACT", c.id);
+    return c;
   }
 
   @PutMapping(value = "/contracts/{id}", consumes = "application/json")
@@ -210,6 +221,7 @@ public class Api {
     if (!c.status.equals("DRAFT"))
       throw new IllegalStateException("Signed terms immutable; create new draft");
     fill(c, i);
+    audit.record("DRAFT_UPDATED", "CONTRACT", c.id);
     return c;
   }
 
@@ -220,6 +232,7 @@ public class Api {
     e.actor = who.getName();
     e.occurredAt = Instant.now(clock);
     events.save(e);
+    audit.record(action, "CONTRACT", c.id);
   }
 
   @PostMapping(value = "/contracts/{id}/sign", consumes = "application/json")
@@ -288,7 +301,9 @@ public class Api {
       }
     }
     p.clubId = i.toClubId();
-    return transfers.save(t);
+    transfers.save(t);
+    audit.record("COMPLETED", "TRANSFER", t.id);
+    return t;
   }
 
   @GetMapping("/performances")
@@ -306,7 +321,34 @@ public class Api {
     p.minutes = i.minutes();
     p.goals = i.goals();
     p.assists = i.assists();
-    return performances.save(p);
+    performances.save(p);
+    audit.record("CREATED", "PERFORMANCE", p.id);
+    return p;
+  }
+
+  record PerformanceEdit(
+      @NotNull Long version,
+      @NotNull Long playerId,
+      @NotNull @PastOrPresent LocalDate matchDate,
+      @Min(0) @Max(130) int minutes,
+      @Min(0) @Max(50) int goals,
+      @Min(0) @Max(50) int assists) {}
+
+  @PutMapping(value = "/performances/{id}", consumes = "application/json")
+  @PreAuthorize("hasAnyRole('ADMIN','COACH')")
+  Performance editPerformance(@PathVariable Long id, @Valid @RequestBody PerformanceEdit i) {
+    var p = performances.findById(id).orElseThrow();
+    version(p.version, i.version());
+    if (!p.playerId.equals(i.playerId()))
+      throw new IllegalArgumentException(
+          "The player on an existing performance record cannot change");
+    p.matchDate = i.matchDate();
+    p.minutes = i.minutes();
+    p.goals = i.goals();
+    p.assists = i.assists();
+    performances.saveAndFlush(p);
+    audit.record("UPDATED", "PERFORMANCE", p.id);
+    return p;
   }
 
   @GetMapping("/dashboard")

@@ -4,7 +4,9 @@ import jakarta.persistence.LockModeType;
 import java.util.*;
 import org.springframework.data.jpa.repository.*;
 
-public interface PlayerRepository extends JpaRepository<Player, Long> {
+public interface PlayerRepository
+    extends JpaRepository<Player, Long>,
+        org.springframework.data.jpa.repository.JpaSpecificationExecutor<Player> {
   @Lock(LockModeType.PESSIMISTIC_WRITE)
   @Query("select p from Player p where p.id=:id")
   Optional<Player> locked(Long id);

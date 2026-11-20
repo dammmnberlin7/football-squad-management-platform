@@ -36,6 +36,18 @@ public class ApiErrors {
                     : "Concurrent update; reload and retry"));
   }
 
+  @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+  ResponseEntity<?> oversized() {
+    return ResponseEntity.status(413)
+        .body(java.util.Map.of("error", "Document too large; maximum 5 MiB"));
+  }
+
+  @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+  ResponseEntity<?> integrity() {
+    return ResponseEntity.status(409)
+        .body(java.util.Map.of("error", "Conflicting record; reload and retry"));
+  }
+
   @ExceptionHandler(java.util.NoSuchElementException.class)
   ResponseEntity<?> missing() {
     return ResponseEntity.status(404).body(java.util.Map.of("error", "Not found"));
